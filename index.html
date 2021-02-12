@@ -5,3 +5,20 @@
 <p>I'm hosted with GitHub Pages.</p>
 </body>
 </html>
+<script>
+function findMax() {
+  var i;
+  var max = -Infinity;
+  for(i = 0; i < arguments.length; i++) {
+    if (arguments[i] > max) {
+      max = arguments[i];
+    }
+  }
+  return max;
+}
+function print(a, b) {
+    document.getElementById("demo").innerHTML = findMax(4, 5, 6);
+    document.getElementById("demo1").innerHTML = a+b;
+    return "result success!,!"
+}
+</script>
