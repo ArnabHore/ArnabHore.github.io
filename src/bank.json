@@ -1,0 +1,787 @@
+[
+  {
+    "name": "Advanced Swift and Language Internals",
+    "questions": [
+      {
+        "id": 1,
+        "title": "What is the fundamental difference between value types and reference types in Swift?",
+        "answer": "Value types such as `struct` and `enum` provide value semantics: independently stored values behave as separate values when copied and mutated. Classes have reference semantics, where multiple variables may refer to the same instance.\n\nValue semantics do not mean every assignment immediately duplicates all underlying memory. Swift's standard collections often use copy-on-write (CoW).\n\nAt Principal level, discuss why value semantics simplify state reasoning and reduce unintended shared mutation, but do not automatically make all operations thread-safe."
+      },
+      {
+        "id": 2,
+        "title": "How does copy-on-write work internally in Swift?",
+        "answer": "Copy-on-write allows multiple value instances to share underlying storage until a mutation requires independent storage.\n\nSwift arrays, for example, commonly share a reference-counted buffer. Before mutating, the implementation checks whether it uniquely owns the storage. If not, it copies.\n\n```\nvar first = [1, 2, 3]\nvar second = first\n\nsecond.append(4)\n\nprint(first)  // [1, 2, 3]\nprint(second) // [1, 2, 3, 4]\n```\n\nCopy-on-write can make copying large collections inexpensive when no mutation follows. A custom CoW type usually uses a private reference-backed storage class and uniqueness checks such as `isKnownUniquelyReferenced`."
+      },
+      {
+        "id": 3,
+        "title": "Explain some Protocol versus any Protocol.",
+        "answer": "`some P` denotes an opaque concrete type that conforms to `P`. The implementation determines the underlying type while callers see only the protocol contract.\n\n`any P` is an existential value capable of holding different conforming concrete types.\n\nOpaque types preserve concrete type identity for the compiler, often enabling more optimization and stronger generic relationships. Existentials provide heterogeneous abstraction but can introduce boxing, indirection or restrictions involving associated types.\n\nUse `some` when retaining a particular hidden concrete type is useful. Use `any` when runtime flexibility matters."
+      },
+      {
+        "id": 4,
+        "title": "How do Swift generics differ from Java-style type erasure?",
+        "answer": "Swift generics preserve type relationships in the type system and may use specialization to optimize code for concrete types. Java generics generally erase generic arguments at runtime, with exceptions in how some metadata is retained.\n\nSwift can implement generic functions using metadata and witness tables, and the optimizer may specialize concrete invocations.\n\nHowever, not every Swift generic invocation is specialized. Code generation depends on optimization, resilience and module boundaries.\n\nPrincipal-level discussion should include binary size versus performance and the impact of cross-module specialization."
+      },
+      {
+        "id": 5,
+        "title": "What are protocol witness tables?",
+        "answer": "Protocol witness tables provide runtime mappings from protocol requirements to a conforming type's implementations.\n\nThey support operations on generic or existential values without requiring every conforming type to inherit from a common base class.\n\nA protocol witness table is distinct from the virtual method dispatch mechanism commonly used by classes.\n\nAlso distinguish protocol requirements from methods declared only in protocol extensions: extension-only methods are generally statically dispatched based on the available type information."
+      },
+      {
+        "id": 6,
+        "title": "Explain static, virtual and dynamic dispatch in Swift.",
+        "answer": "Static dispatch resolves the implementation through compile-time knowledge, allowing potential inlining.\n\nClass methods that support overriding may use virtual dispatch. Objective-C-compatible methods marked `dynamic`, or otherwise routed through Objective-C runtime mechanisms, may use message dispatch.\n\nSwift also uses witness-table dispatch for protocol requirements.\n\nA common misconception is that every class method uses dynamic dispatch. Swift optimization, `final`, visibility and resilience can change the implementation strategy."
+      },
+      {
+        "id": 7,
+        "title": "How does ARC work, and why does it not prevent memory leaks?",
+        "answer": "Automatic Reference Counting manages the lifetime of reference-counted objects by retaining and releasing references.\n\nWhen the relevant strong reference count reaches zero, an object can be deinitialized.\n\nARC does not automatically detect and collect strong reference cycles.\n\nFor example, a view controller strongly owns a callback holder, while the holder strongly retains a closure capturing the view controller. Neither object can be released.\n\nUse weak references where ownership is non-owning, and invalidate long-lived callbacks, subscriptions and tasks when appropriate."
+      },
+      {
+        "id": 8,
+        "title": "When should you use weak versus unowned?",
+        "answer": "Both avoid strong ownership.\n\nA `weak` reference becomes `nil` when the referenced object is deallocated, and is typically optional.\n\nAn `unowned` reference assumes the target remains alive whenever accessed. Violating this assumption causes a runtime failure.\n\nUse `weak` when the other object may disappear independently. Use `unowned` only when you can prove the lifetime relationship.\n\nFor asynchronous callbacks and long-lived operations, `weak` is generally safer because execution may outlive the initiating object."
+      },
+      {
+        "id": 9,
+        "title": "What are escaping and non-escaping closures?",
+        "answer": "A non-escaping closure is guaranteed not to escape the function call's lifetime. An escaping closure may be stored or executed later.\n\n```\nfunc execute(_ action: () -> Void) {\n    action()\n}\n\nfunc schedule(_ action: @escaping () -> Void) {\n    DispatchQueue.main.async(execute: action)\n}\n```\n\nEscaping closures require more careful lifetime and capture management.\n\nThey also affect how `self` must be referenced in some contexts, and how the compiler reasons about borrowed or retained values."
+      },
+      {
+        "id": 10,
+        "title": "Explain Swift's exclusivity of memory access.",
+        "answer": "Swift enforces rules that prevent overlapping incompatible accesses to the same memory.\n\nFor example, two overlapping `inout` modifications of the same variable violate exclusivity.\n\nExclusivity helps Swift preserve value semantics and enables optimizations.\n\nIt is not equivalent to full thread safety: programs can still require actor isolation or other synchronization to coordinate independent concurrent tasks."
+      },
+      {
+        "id": 11,
+        "title": "What is a property wrapper, and when would you build one?",
+        "answer": "A property wrapper encapsulates reusable behaviour around property storage or access using `@propertyWrapper` and `wrappedValue`.\n\nCommon uses include validation, persistence adapters and dependency access.\n\n```\n@propertyWrapper\nstruct Clamped {\n    private var value: Int\n    let range: ClosedRange<Int>\n\n    var wrappedValue: Int {\n        get { value }\n        set {\n            value = min(max(newValue, range.lowerBound),\n                        range.upperBound)\n        }\n    }\n\n    init(wrappedValue: Int, _ range: ClosedRange<Int>) {\n        self.range = range\n        value = min(max(wrappedValue, range.lowerBound),\n                    range.upperBound)\n    }\n}\n```\n\nFor production architecture, avoid wrappers that hide expensive I/O or introduce implicit global state."
+      },
+      {
+        "id": 12,
+        "title": "What is type erasure and why is it useful?",
+        "answer": "Type erasure hides a generic concrete type behind a stable abstraction.\n\nThis is useful when protocols contain associated types or `Self` requirements that complicate heterogeneous storage.\n\nExamples include `AnySequence`, `AnyHashable` and custom `AnyRepository<Model>` wrappers.\n\nA typical implementation stores closures or an internal box to forward operations to the underlying value.\n\nThe cost is additional indirection, potentially more allocations and weaker compile-time knowledge. Do not introduce type erasure when an ordinary generic type is sufficient."
+      },
+      {
+        "id": 13,
+        "title": "What are associated types, and how do they influence protocol design?",
+        "answer": "An associated type is a placeholder type determined by a protocol's conforming implementation.\n\nFor example, a repository protocol may declare `associatedtype Entity`.\n\nAssociated types are useful when the relationship between input and output types matters.\n\nAt an architecture level, consider whether consumers should be generic over the protocol, use a primary associated type constraint, or require type erasure.\n\nOverusing associated types can make dependency injection and module interfaces unnecessarily complex."
+      },
+      {
+        "id": 14,
+        "title": "How do resilient modules affect Swift performance and API design?",
+        "answer": "Library evolution allows a framework to change implementation details while maintaining binary compatibility.\n\nResilience can restrict assumptions that clients make about the layout or implementation of public types.\n\nThis affects opportunities for inlining and specialization.\n\nAttributes such as `@inlinable` expose implementation bodies for cross-module optimization, but create compatibility obligations.\n\nIn an internal application, source compatibility may matter more than ABI compatibility. In a public SDK, both should be explicitly designed."
+      },
+      {
+        "id": 15,
+        "title": "When should you choose struct, class or actor?",
+        "answer": "Choose a `struct` for values with independent state and value semantics.\n\nChoose a `class` when shared identity, reference semantics, subclassing or Objective-C interoperability is necessary.\n\nChoose an `actor` when mutable state needs to be shared safely across concurrency domains.\n\nActors are not simply “better classes.” Actor isolation introduces asynchronous access boundaries and potential reentrancy concerns.\n\nFor UI state, main-actor-isolated observable models are often more appropriate than introducing independent background actors."
+      },
+      {
+        "id": 16,
+        "title": "What is the difference between Equatable, Hashable, Identifiable and Comparable?",
+        "answer": "`Equatable` establishes equality semantics. `Hashable` supports hash-based collections and requires equal values to hash equally. `Comparable` defines ordering. `Identifiable` provides identity through an `id`.\n\nThese concepts must not be conflated.\n\nTwo user profiles might be distinct values but represent the same persistent user identity.\n\nMutable fields participating in hashing must not change while an item is being used as a key in a hash-based collection.\n\nFor SwiftUI, stable identity is crucial for correct state retention and diffing."
+      },
+      {
+        "id": 17,
+        "title": "How would you implement a custom collection?",
+        "answer": "First determine whether the abstraction requires `Sequence`, `Collection`, `BidirectionalCollection` or `RandomAccessCollection`.\n\nProvide coherent index semantics, `startIndex`, `endIndex` and subscripting, along with required traversal operations.\n\nDo not promise random access unless indexing operations meet its complexity expectations.\n\nFor a ring buffer, consider logical versus physical indices and mutation invalidation.\n\nA Principal Engineer should evaluate whether the custom structure provides enough performance or API benefits to justify maintenance complexity."
+      },
+      {
+        "id": 18,
+        "title": "What are Swift's Codable limitations in complex API models?",
+        "answer": "`Codable` is excellent for consistent schemas, but external APIs often contain polymorphic payloads, inconsistent field types, version-dependent fields and dynamic keys.\n\nUse custom `init(from:)`, explicit discriminator enums and carefully controlled lossy parsing where appropriate.\n\nSeparate transport DTOs from domain models so inconsistent backend representations do not contaminate business logic.\n\nAvoid broadly ignoring decoding errors, which can silently convert serious contract regressions into corrupted application state."
+      },
+      {
+        "id": 19,
+        "title": "How do throws, Result and typed throws differ?",
+        "answer": "`throws` propagates errors through Swift's error-handling control flow. `Result<Success, Failure>` represents an operation's success or failure as a value.\n\nTyped throws, written as `throws(SpecificError)`, allow an API to specify its error type.\n\nUse `Result` when failures must be stored, composed or passed around explicitly. Use throwing functions for natural synchronous or asynchronous control flow.\n\nFor a public API, consider error taxonomy, recovery options and compatibility as carefully as the success type."
+      },
+      {
+        "id": 20,
+        "title": "How does Swift bridge to Objective-C?",
+        "answer": "Swift interoperates with Objective-C through supported Objective-C-compatible types, `NSObject` inheritance, exposed declarations and bridging mechanisms.\n\nFoundation types such as `NSString`, `NSArray` and `NSDictionary` have bridging relationships with Swift equivalents.\n\nNot all Swift features are representable in Objective-C. Generic Swift APIs, associated types and pure Swift value types may require adapter layers.\n\nA practical modernization approach is to preserve a small Objective-C-facing façade while moving implementation details into Swift modules."
+      },
+      {
+        "id": 21,
+        "title": "What are result builders and how does SwiftUI use them?",
+        "answer": "Result builders transform declarative statement syntax into calls that construct structured results.\n\nSwiftUI uses `@ViewBuilder` to combine conditional and sequential view declarations into concrete view composition types.\n\nResult builders do not make arbitrary control flow free or erase all type constraints.\n\nFor custom DSLs, they can improve readability, but complex builders often produce difficult diagnostics and opaque abstractions. Prefer straightforward APIs when ordinary functions and types express the problem clearly."
+      },
+      {
+        "id": 22,
+        "title": "How would you design a public Swift SDK?",
+        "answer": "Start with the SDK's consumer contract: supported platforms, API stability, error behaviour, threading, privacy and versioning.\n\nUse intentional access control and avoid exposing internal implementation types.\n\nDefine clear ownership and cancellation semantics for asynchronous APIs.\n\nTest backward compatibility, binary size, resource usage and failure scenarios. Maintain semantic versioning and migration documentation.\n\nA production-quality SDK also needs telemetry boundaries, security review, reproducible releases and a consumer-facing sample application."
+      },
+      {
+        "id": 23,
+        "title": "What are Swift macros, and when should you avoid them?",
+        "answer": "Macros generate Swift code at compile time and can reduce repetitive declarations or provide domain-specific transformations.\n\nThey can improve consistency, but they also introduce generated code, build-tool dependencies and debugging complexity.\n\nUse them when the generated contract is understandable and stable.\n\nAvoid macros for logic that is easier to express through generics, protocol extensions or ordinary functions.\n\nAt Principal level, assess compile-time cost, developer tooling, testability and maintenance ownership before adoption."
+      },
+      {
+        "id": 24,
+        "title": "What causes retain cycles involving Combine subscriptions or asynchronous tasks?",
+        "answer": "A cycle can occur when an object owns a subscription, the subscription owns a closure and the closure strongly captures the object.\n\nLikewise, an object may store a task whose operation strongly captures that object. Even without a permanent cycle, a long-running task can unexpectedly extend the object's lifetime.\n\nUse appropriately scoped cancellation and avoid indefinite work tied to UI objects.\n\nWeak capture is not a universal fix; it must be combined with explicit ownership and lifecycle design."
+      },
+      {
+        "id": 25,
+        "title": "What does a Principal Engineer need to understand about Swift performance?",
+        "answer": "Swift performance is affected by algorithmic complexity, allocations, ARC traffic, dispatch, generic specialization, memory locality, bridging and concurrency scheduling.\n\nValue types are not automatically faster than reference types, and protocol-based designs are not inherently slow.\n\nMeasure with production-like workloads and Instruments before choosing optimization strategies.\n\nA Principal Engineer should be able to explain whether the bottleneck arises from architecture, I/O, algorithmic complexity, synchronization or code-generation overhead."
+      }
+    ]
+  },
+  {
+    "name": "Concurrency and Multithreading",
+    "questions": [
+      {
+        "id": 26,
+        "title": "What problem does Swift structured concurrency solve?",
+        "answer": "Structured concurrency ties the lifetime of child tasks to an enclosing operation.\n\nIt improves error propagation, cancellation management and reasoning about asynchronous workflows.\n\n`async let` is suitable for a fixed number of concurrent operations; task groups support dynamic collections of child tasks.\n\nStructured concurrency does not eliminate the need for timeouts, resource limits or cancellation checks."
+      },
+      {
+        "id": 27,
+        "title": "How does async/await differ from Grand Central Dispatch?",
+        "answer": "`async/await` expresses asynchronous control flow using language-level suspension and task semantics.\n\nGCD schedules blocks on dispatch queues and supplies lower-level synchronization and execution primitives.\n\nAn `await` does not inherently block a thread while an operation is suspended.\n\nConversely, writing `async` does not automatically move CPU-intensive work off the main actor.\n\nFor modern application architecture, prefer structured concurrency for asynchronous workflows while retaining GCD where it supplies appropriate interoperability or low-level primitives."
+      },
+      {
+        "id": 28,
+        "title": "What is an actor, and does it eliminate all race conditions?",
+        "answer": "Actors protect their isolated mutable state from simultaneous unsynchronized access.\n\nThey prevent a class of data races, but logical races can still occur.\n\nFor example, an actor may verify that a balance is sufficient, suspend while awaiting an external operation, and later deduct money based on stale assumptions.\n\nCorrectness may require transaction-like operations, state revalidation or keeping critical transitions within non-suspending actor-isolated code."
+      },
+      {
+        "id": 29,
+        "title": "Explain actor reentrancy with a practical example.",
+        "answer": "An actor-isolated method can suspend at `await`, allowing other work on the same actor to run before the method resumes.\n\n```\nactor Inventory {\n    private var available = 1\n\n    func reserve() async -> Bool {\n        guard available > 0 else { return false }\n\n        await Task.yield()\n\n        // Another task may have changed available.\n        guard available > 0 else { return false }\n\n        available -= 1\n        return true\n    }\n}\n```\n\nThe second check protects against acting on stale state.\n\nFor more complex reservations, move the state transition before suspension or introduce an explicit reservation state machine."
+      },
+      {
+        "id": 30,
+        "title": "Explain Task, Task.detached and async let.",
+        "answer": "`Task {}` creates an unstructured task that normally inherits the surrounding actor context, priority and task-local values.\n\n`Task.detached {}` creates a more independent task without inheriting actor isolation or task-local context by default.\n\n`async let` creates a structured child task scoped to the enclosing operation.\n\nPrefer structured concurrency when possible. Use unstructured tasks for explicitly managed lifetimes, such as user-initiated work, and detached tasks sparingly."
+      },
+      {
+        "id": 31,
+        "title": "How does cancellation work in Swift concurrency?",
+        "answer": "Cancellation is cooperative.\n\nCalling `cancel()` marks the task as cancelled; it does not forcibly terminate execution.\n\nOperations should check cancellation with `Task.checkCancellation()` or `Task.isCancelled`, and respond appropriately to cancellation thrown by participating APIs.\n\nFor a search screen, cancellation should also prevent outdated results from updating UI state.\n\nA robust design combines cancellation with request identity checks, because lower-level operations or callbacks may still complete."
+      },
+      {
+        "id": 32,
+        "title": "What is Sendable?",
+        "answer": "`Sendable` expresses that values can safely cross concurrency isolation boundaries.\n\nImmutable value types composed of Sendable members can often satisfy this requirement.\n\nMutable reference types typically require isolation or synchronization.\n\n`@unchecked Sendable` is an explicit assertion that the developer has implemented safety guarantees the compiler cannot verify. It should be treated as a significant review responsibility, not a convenient fix for compiler warnings."
+      },
+      {
+        "id": 33,
+        "title": "How does @MainActor relate to the main thread?",
+        "answer": "`@MainActor` isolates declarations to the main actor, which is closely associated with main-thread UI execution.\n\nIt provides a concurrency-domain guarantee, not a blanket performance optimization.\n\nA method isolated to `MainActor` can still freeze the UI if it performs substantial synchronous work.\n\nHeavy decoding, image transformations and expensive calculations should be moved to a suitable independent execution context."
+      },
+      {
+        "id": 34,
+        "title": "What changed in Swift 6 strict concurrency?",
+        "answer": "Swift 6 language mode strengthens compile-time checking around potentially unsafe transfers of mutable state, actor isolation and Sendable requirements.\n\nA migration can uncover issues hidden by callback-based code, global mutable state and legacy libraries.\n\nAn effective migration strategy enables diagnostics, groups issues by module, introduces actor isolation at ownership boundaries and verifies behaviour through tests.\n\nAvoid suppressing warnings broadly with unchecked conformances or unsafe annotations."
+      },
+      {
+        "id": 35,
+        "title": "What is approachable concurrency in Swift 6.2?",
+        "answer": "Swift 6.2 added opt-in language and build-setting improvements that make actor-isolated, mostly single-threaded code easier to write.\n\nThese include an option for default main-actor isolation, changes to how nonisolated asynchronous functions execute under the relevant language feature, and explicit concurrent execution using `@concurrent`.\n\nThe key idea is to make intentional concurrency boundaries clearer instead of implicitly offloading work.\n\nDo not assume every existing Swift target uses these settings automatically.&#x20;\n\n[image](https://www.google.com/s2/favicons?domain=https://www.swift.org\\&sz=32)\n\nSwift.org+1"
+      },
+      {
+        "id": 36,
+        "title": "What is a continuation, and how can it be misused?",
+        "answer": "A continuation bridges callback-oriented APIs into Swift's asynchronous model.\n\nChecked continuations help detect incorrect usage. Each continuation must be resumed exactly once.\n\nCommon bugs include never resuming on an error path or resuming twice when timeout and completion callbacks race.\n\nFor production bridges, design a single completion owner, define cancellation behaviour and test callback races."
+      },
+      {
+        "id": 37,
+        "title": "How would you bridge a legacy callback API to async/await?",
+        "answer": "Use `withCheckedThrowingContinuation` for a callback that completes exactly once.\n\n```\nfunc fetchUser() async throws -> User {\n    try await withCheckedThrowingContinuation { continuation in\n        legacyService.fetchUser { result in\n            continuation.resume(with: result)\n        }\n    }\n}\n```\n\nThis assumes `result` is `Result<User, Error>`.\n\nA production implementation must also address legacy request cancellation, duplicate callback protection and whether a callback may never arrive."
+      },
+      {
+        "id": 38,
+        "title": "What is priority inversion?",
+        "answer": "Priority inversion occurs when high-priority work is delayed by lower-priority work that holds a required resource.\n\nExamples include locks, serialized operations or dependency chains.\n\nSwift task priorities influence scheduling but are not strict execution deadlines.\n\nAvoid unnecessary shared locks, keep critical sections short and design dependency structures so urgent user-facing work is not blocked by background maintenance.\n\nMeasure real latency rather than relying solely on declared priorities."
+      },
+      {
+        "id": 39,
+        "title": "Explain deadlocks versus data races.",
+        "answer": "A deadlock occurs when execution cannot progress because operations wait indefinitely on one another.\n\nA data race occurs when conflicting unsynchronized memory accesses happen concurrently.\n\nFor example, synchronously dispatching onto the same serial queue can deadlock. Concurrently mutating an ordinary dictionary without synchronization can cause a data race.\n\nActors address many unsafe shared-memory accesses, but poorly designed synchronous locking or circular asynchronous dependencies can still prevent progress."
+      },
+      {
+        "id": 40,
+        "title": "How do you implement bounded concurrency?",
+        "answer": "Bound the number of simultaneous requests or computations instead of starting all tasks at once.\n\nA task-group implementation can initially launch up to N operations and add another operation whenever one finishes.\n\nAlternatively, a concurrency-limiting actor or asynchronous semaphore can regulate access.\n\nThis is essential for large image batches, uploads and data prefetching.\n\nConsider cancellation, fairness, request priority, error propagation and memory use when choosing the implementation."
+      },
+      {
+        "id": 41,
+        "title": "How would you design a thread-safe image cache?",
+        "answer": "Separate memory caching, disk persistence and download coordination.\n\nAn actor can protect cache metadata and in-flight request state. `NSCache` can manage memory pressure for object-backed entries.\n\nImage decoding should not block the main actor.\n\nDeduplicate requests for the same URL, define cache keys that account for image dimensions and transformations, and establish expiration policies.\n\nAlso consider how one consumer cancelling should affect a shared download requested by other consumers."
+      },
+      {
+        "id": 42,
+        "title": "How would you prevent duplicate network requests?",
+        "answer": "Maintain an in-flight registry keyed by a canonical request identity.\n\nWhen the first caller starts a request, register its task. Later callers await the existing task's result.\n\nOn completion, remove the registry entry using an identity check so an older completion cannot accidentally remove a newer request.\n\nDecide whether cancellation should apply per subscriber or to the underlying shared operation.\n\nA Principal-level implementation should define authentication scope, cache policy and error-sharing semantics too."
+      },
+      {
+        "id": 43,
+        "title": "Explain AsyncSequence and AsyncStream.",
+        "answer": "`AsyncSequence` represents a sequence whose elements arrive asynchronously.\n\n`AsyncStream` helps adapt event-based systems into asynchronous iteration.\n\nThey are useful for network events, progress updates, sensor streams and long-lived application state changes.\n\nWhen implementing streams, pay attention to termination, continuation cleanup, buffering policies and consumer cancellation.\n\nAn unbounded producer feeding a slow consumer can cause memory growth even when the API looks elegant."
+      },
+      {
+        "id": 44,
+        "title": "What is backpressure, and why does it matter?",
+        "answer": "Backpressure is the mechanism by which a consumer's capacity influences the rate or volume of produced data.\n\nWithout it, a fast producer may overwhelm a slower UI, database or network layer.\n\nPossible strategies include buffering with explicit limits, dropping stale values, coalescing updates, requesting data in batches and controlling producer concurrency.\n\nFor live location tracking, displaying every intermediate update may be unnecessary; the most recent accurate position may be more valuable."
+      },
+      {
+        "id": 45,
+        "title": "How do you debug a concurrency bug that occurs only in production?",
+        "answer": "Start with evidence: affected devices, OS versions, operation timing, logs and crash traces.\n\nUse Thread Sanitizer and strict concurrency diagnostics where applicable, then create stress tests that vary task ordering.\n\nInstrument actor state transitions and request identifiers without logging sensitive user data.\n\nTry to identify the underlying invariant that is violated rather than merely introducing delays.\n\nAvoid treating an unreproducible race as solved because a specific schedule no longer triggers it."
+      },
+      {
+        "id": 46,
+        "title": "When is an actor a poor choice?",
+        "answer": "An actor may be unnecessary for immutable data, purely local state or UI state already isolated to the main actor.\n\nOverusing actors can create excessive isolation crossings, complex asynchronous APIs and difficult ownership.\n\nActors also cannot make an inherently blocking operation non-blocking.\n\nChoose actor boundaries around real shared mutable state or resources, not automatically around every class or repository."
+      },
+      {
+        "id": 47,
+        "title": "How do you prevent a stale API response from replacing newer search results?",
+        "answer": "Combine request cancellation with an explicit generation identifier.\n\nEach search increments a generation counter. A completed request may update UI only if its generation still matches the current search.\n\nDebounce user input where useful, but do not rely on debounce alone.\n\nThis protects against older requests finishing after newer ones and against network layers that do not reliably cancel underlying operations."
+      },
+      {
+        "id": 48,
+        "title": "What happens when an async let child throws?",
+        "answer": "The error is observed when the child's result is awaited or otherwise collected through structured concurrency.\n\nWhen the enclosing scope exits with an error, outstanding child tasks are cancelled and awaited as part of structured cleanup.\n\nCancellation is cooperative, so children may still need time to terminate.\n\nDesign child operations to check cancellation and release resources promptly."
+      },
+      {
+        "id": 49,
+        "title": "How do you choose between locks, serial queues and actors?",
+        "answer": "Choose based on the required API shape, ownership and performance constraints.\n\nLocks are useful for very short synchronous critical sections. Serial queues can coordinate synchronous and callback-based work. Actors integrate isolation with Swift concurrency and asynchronous access.\n\nAvoid holding locks across `await`, and avoid nested locking without a defined ordering policy.\n\nFor existing Objective-C or GCD-heavy modules, incremental integration may be more practical than an immediate actor rewrite."
+      },
+      {
+        "id": 50,
+        "title": "Design a concurrency-safe token refresh mechanism.",
+        "answer": "Centralize token state and refresh coordination in an actor.\n\nWhen multiple requests receive an authentication failure, only one refresh operation should proceed; other requests await the same refresh task.\n\nAfter success, update credentials consistently and retry eligible requests once.\n\nProtect against endless refresh loops, rejected refresh tokens and token rotation races.\n\nNever log tokens. Ensure logout cancels or invalidates pending authentication work and prevents old sessions from restoring credentials."
+      }
+    ]
+  },
+  {
+    "name": "SwiftUI and Declarative UI",
+    "questions": [
+      {
+        "id": 51,
+        "title": "How does SwiftUI's rendering model differ from UIKit?",
+        "answer": "UIKit generally uses long-lived view objects that developers mutate directly. SwiftUI uses declarative view descriptions derived from application state.\n\nSwiftUI recomputes view descriptions when relevant dependencies change, reconciles them with the existing hierarchy and updates the necessary platform representation.\n\nA SwiftUI `View` value is not the same as its underlying rendered view.\n\nA Principal Engineer should understand dependency tracking, identity, expensive body computation and how to minimize unnecessary work without fighting the declarative model."
+      },
+      {
+        "id": 52,
+        "title": "Explain structural versus explicit identity in SwiftUI.",
+        "answer": "Structural identity is derived from a view's position and type within the hierarchy. Explicit identity comes from identifiers supplied through mechanisms such as `id`.\n\nIdentity determines whether SwiftUI can preserve associated state across updates.\n\nFor example, using a newly generated UUID on every render makes a list item appear new repeatedly.\n\nStable domain identifiers are preferable for dynamic collections. Incorrect identity can cause state resets, visual glitches, unexpected animations and unnecessary rendering work."
+      },
+      {
+        "id": 53,
+        "title": "When should you use @State, @Binding, @StateObject and @ObservedObject?",
+        "answer": "`@State` stores view-owned state. `@Binding` provides read/write access to state owned elsewhere.\n\nFor older `ObservableObject` patterns, `@StateObject` gives SwiftUI ownership of an observable reference model, while `@ObservedObject` observes a model owned elsewhere.\n\nThe newer Observation framework changes some preferred patterns: an `@Observable` model can commonly be owned through `@State`, and `@Bindable` can expose bindings.\n\nChoose based on ownership, observation mechanism and deployment target rather than memorizing wrappers in isolation."
+      },
+      {
+        "id": 54,
+        "title": "What is the Observation framework, and why is it important?",
+        "answer": "The Observation framework provides macro-assisted observation using constructs such as `@Observable`.\n\nIt supports dependency tracking based on observable property access, enabling more targeted invalidation than coarse whole-object notifications in many situations.\n\nIt can simplify SwiftUI state management, but it does not replace the need for sound ownership and concurrency isolation.\n\nFor a mature UIKit and SwiftUI codebase, introduce Observation through carefully defined boundaries instead of rewriting every existing view model simultaneously."
+      },
+      {
+        "id": 55,
+        "title": "Why does a SwiftUI view's body get evaluated frequently?",
+        "answer": "SwiftUI evaluates body descriptions when it determines that dependencies or surrounding view composition may have changed.\n\nA body evaluation does not necessarily mean the platform must redraw every pixel.\n\nExpensive calculations, database access and network requests should not occur directly inside `body`.\n\nMove expensive transformations into suitable model or cached computation layers and profile actual update behaviour before optimizing."
+      },
+      {
+        "id": 56,
+        "title": "How would you diagnose poor SwiftUI scrolling performance?",
+        "answer": "Start by reproducing on a representative physical device using Instruments and SwiftUI performance tooling.\n\nCheck view identity, overly expensive body computations, synchronous image decoding, layout complexity, large view trees and unstable model updates.\n\nUse lazy containers where appropriate, prefetch images, downsample large assets and avoid decoding or formatting repeatedly during scrolling.\n\nMeasure frame stability, main-thread activity and memory use before and after each change."
+      },
+      {
+        "id": 57,
+        "title": "What is the difference between List, ScrollView and LazyVStack?",
+        "answer": "`List` provides list-specific behaviours such as platform styling, row interaction and built-in optimizations.\n\n`ScrollView` provides a scrolling container with more direct layout control. `LazyVStack` creates child views lazily as needed within a compatible scroll container.\n\nA lazy stack is not automatically superior to `List` in every workload.\n\nSelection should depend on accessibility, reuse behaviour, interaction requirements, performance and customization."
+      },
+      {
+        "id": 58,
+        "title": "How does SwiftUI layout work?",
+        "answer": "SwiftUI layout broadly follows a proposal-measure-placement model.\n\nA parent proposes available size, a child reports its chosen size, and the parent positions it.\n\nModifiers such as `frame`, `fixedSize` and layout priorities affect these negotiations.\n\nUnderstanding this model is essential for debugging unexpectedly expanded views, clipped content and conflicting size requirements.\n\nFor advanced interfaces, the `Layout` protocol can express reusable custom layout behaviour more cleanly than ad hoc geometry calculations."
+      },
+      {
+        "id": 59,
+        "title": "What is the role of GeometryReader, and why is it often misused?",
+        "answer": "`GeometryReader` provides geometry information about the space offered by its parent.\n\nIt is useful for geometry-dependent components, but its layout behaviour can be surprising because it generally accepts the proposed space.\n\nOverusing it creates fragile layouts tied to parent dimensions.\n\nPrefer standard layout primitives, alignment guides, custom `Layout` implementations and view-relative modifiers when those express the requirement more directly."
+      },
+      {
+        "id": 60,
+        "title": "How would you migrate a large UIKit app to SwiftUI?",
+        "answer": "Use an incremental migration based on feature boundaries.\n\nBegin with isolated reusable components or new screens, embedding SwiftUI through `UIHostingController` and presenting UIKit components through representable wrappers when required.\n\nKeep navigation, dependency injection, analytics and state ownership consistent.\n\nDo not force a complete architecture rewrite merely to change the UI framework.\n\nMeasure delivery speed, regressions, accessibility, memory and rendering performance while expanding adoption."
+      },
+      {
+        "id": 61,
+        "title": "Explain UIViewRepresentable and UIViewControllerRepresentable.",
+        "answer": "These protocols allow UIKit views and view controllers to participate in SwiftUI hierarchies.\n\n`makeUIView` or `makeUIViewController` creates the platform object, while update methods synchronize it with SwiftUI state.\n\nA `Coordinator` can mediate delegates and callbacks.\n\nThe difficult part is preserving a clear source of truth and preventing feedback loops between UIKit callbacks and SwiftUI state updates.\n\nThe wrappers must also respect lifecycle, threading and resource cleanup."
+      },
+      {
+        "id": 62,
+        "title": "How would you design navigation in a large SwiftUI application?",
+        "answer": "Model navigation as explicit application state using typed destinations and `NavigationStack` where suitable.\n\nFor multi-feature applications, distinguish local feature navigation from application-level flows such as authentication, deep links and tab switching.\n\nAvoid letting each screen manipulate global navigation through hidden shared dependencies.\n\nUse a routing abstraction only when it solves real coordination needs, and ensure navigation state supports restoration and testing."
+      },
+      {
+        "id": 63,
+        "title": "How does SwiftUI handle animations?",
+        "answer": "SwiftUI animates transitions between state-driven values when the relevant changes occur within an animation transaction.\n\nImplicit `.animation(_:value:)` and explicit `withAnimation` provide different scopes of intent.\n\n`matchedGeometryEffect` can coordinate related view geometry across transitions.\n\nAt Principal level, discuss stable identity, interruption, animation completion, accessibility preferences and behaviour under rapidly changing state.\n\nAnimations should not be used to conceal expensive synchronous work."
+      },
+      {
+        "id": 64,
+        "title": "How do you manage complex shared state across SwiftUI modules?",
+        "answer": "Separate state by ownership and lifetime.\n\nKeep transient UI state near the view that owns it. Put feature-level business state in a dedicated observable model or reducer, and share application-wide services through explicit dependency injection.\n\nFor highly coordinated workflows, a state machine or unidirectional data flow architecture can reduce ambiguity.\n\nAvoid a single global observable object containing every application's state, because it encourages coupling and makes testing difficult."
+      },
+      {
+        "id": 65,
+        "title": "What is the difference between a SwiftUI view model and a reducer-based architecture?",
+        "answer": "A view model commonly exposes state and methods that perform actions. A reducer models changes as transformations from current state and actions to new state, often separating effects.\n\nReducer-based architectures can make complex transitions deterministic and testable.\n\nHowever, they may add boilerplate and indirection to simple screens.\n\nThe decision should depend on coordination complexity, team familiarity, testability and architectural consistency rather than adopting a pattern solely because it is popular."
+      },
+      {
+        "id": 66,
+        "title": "How would you test SwiftUI applications?",
+        "answer": "Test business rules and state transitions independently of the view layer.\n\nUse unit tests for observable models or reducers, integration tests for repositories, UI tests for important journeys and visual regression tests for critical components.\n\nInclude dynamic type, dark mode, localization and accessibility in representative UI coverage.\n\nTesting should focus on stable behaviour, not excessive assertions against implementation details that change during harmless UI refactoring."
+      },
+      {
+        "id": 67,
+        "title": "How would you prevent repeated API calls caused by SwiftUI view updates?",
+        "answer": "Never initiate network work directly as a side effect of evaluating `body`.\n\nUse lifecycle-aware mechanisms such as `.task` and `.task(id:)`, coupled with stable request identifiers and explicit loading state.\n\nThe `.task` modifier can be cancelled when the view disappears, but the view lifecycle may cause work to restart.\n\nFor data shared across multiple screens, move request coordination and caching into a longer-lived repository or service."
+      },
+      {
+        "id": 68,
+        "title": "How would you design an accessible custom SwiftUI control?",
+        "answer": "Start with the control's semantic role, label, value and supported actions.\n\nSupport VoiceOver, Dynamic Type, adequate contrast, reduced motion, larger content sizes and appropriate hit targets.\n\nUse accessibility modifiers to combine or separate elements and expose custom actions.\n\nValidate on real devices with assistive technologies.\n\nA visually attractive component is not production-ready if its functionality is inaccessible to users navigating without touch."
+      },
+      {
+        "id": 69,
+        "title": "How would you implement a high-performance image-heavy SwiftUI feed?",
+        "answer": "Use stable item identities, paginated data access and a bounded prefetching strategy.\n\nImplement memory and disk caching keyed by image identity and transformation size. Decode and downsample images outside the main actor.\n\nCancel no-longer-needed requests where appropriate and deduplicate downloads across cells.\n\nLimit simultaneous decoding and measure memory consumption during rapid scrolling.\n\nUse visible performance metrics such as dropped frames, time to first content and memory peaks."
+      },
+      {
+        "id": 70,
+        "title": "When would you deliberately choose UIKit over SwiftUI?",
+        "answer": "UIKit remains valuable for mature components, deep platform customization, complex interaction requirements, unsupported platform behaviour and codebases where migration cost outweighs benefits.\n\nSome advanced animations, text editing scenarios and specialized layouts may be easier to control through UIKit.\n\nA Principal Engineer should avoid framework ideology.\n\nChoose based on requirements, operating-system support, team expertise, measured performance, maintenance cost and interoperability."
+      }
+    ]
+  },
+  {
+    "name": "UIKit and Platform Engineering",
+    "questions": [
+      {
+        "id": 71,
+        "title": "Explain the complete UIViewController lifecycle.",
+        "answer": "A view controller transitions through construction, view loading, appearance, disappearance and eventual deallocation.\n\nImportant callbacks include `loadView`, `viewDidLoad`, `viewWillAppear`, `viewDidAppear`, `viewWillDisappear` and `viewDidDisappear`.\n\nDo one-time view setup in `viewDidLoad`, and use appearance callbacks for operations genuinely tied to visibility.\n\nAvoid assuming appearance callbacks are called exactly once. Manage subscriptions, observers, child controller containment and asynchronous operations through explicit ownership rules."
+      },
+      {
+        "id": 72,
+        "title": "How does Auto Layout solve constraints?",
+        "answer": "Auto Layout uses a constraint-solving system to determine geometry based on relationships between layout attributes.\n\nConstraints can have priorities, allowing the engine to resolve optional relationships while satisfying required ones.\n\nUnsatisfiable constraints occur when required conditions cannot all hold. Ambiguous layouts occur when multiple valid solutions exist.\n\nA senior engineer should understand intrinsic content size, content hugging, compression resistance and how constraint count and complexity can affect layout work."
+      },
+      {
+        "id": 73,
+        "title": "How would you debug conflicting Auto Layout constraints?",
+        "answer": "Reproduce the problematic size or content condition first.\n\nInspect console diagnostics, symbolic breakpoints such as `UIViewAlertForUnsatisfiableConstraints`, and the Xcode view hierarchy debugger.\n\nIdentify the smallest conflicting set of constraints instead of randomly lowering priorities.\n\nCheck intrinsic content sizes, autoresizing-mask translation and dynamically updated constraints.\n\nFix the ownership or layout model causing the conflict and add regression coverage for relevant device sizes and accessibility text scales."
+      },
+      {
+        "id": 74,
+        "title": "Explain the relationship between UIView, CALayer and Core Animation.",
+        "answer": "A `UIView` manages interaction, layout and UIKit-level behaviour. Its backing `CALayer` handles much of the visual representation and compositing.\n\nCore Animation coordinates property-based animations and rendering-related state.\n\nModel-layer values represent target properties; presentation-layer values can describe intermediate animated values.\n\nUnderstanding these distinctions helps implement interruptible animations, custom controls and smooth transitions without continuously rebuilding view hierarchies."
+      },
+      {
+        "id": 75,
+        "title": "What happens in the iOS rendering pipeline?",
+        "answer": "Application code updates UI state and layer properties. The system processes layout, display and compositing work, and ultimately presents frames through the rendering pipeline.\n\nThe cost can arise from CPU-side layout, drawing, image decoding, offscreen rendering, excessive compositing or GPU work.\n\nAvoid assuming every visual hitch is caused by main-thread business logic.\n\nUse profiling tools to determine the actual bottleneck before simplifying layouts or introducing custom drawing."
+      },
+      {
+        "id": 76,
+        "title": "How does UICollectionView achieve efficient scrolling?",
+        "answer": "Collection views reuse cells and supplementary views rather than creating permanent objects for every item.\n\nLayout systems calculate positioning, while data sources provide content and identity.\n\nEfficient implementations avoid heavy work in cell configuration, cancel stale asynchronous updates and prefetch selectively.\n\nUse diffable data sources for snapshot-driven updates, but make sure item identity is stable and snapshots are not rebuilt unnecessarily."
+      },
+      {
+        "id": 77,
+        "title": "What problems can occur with diffable data sources?",
+        "answer": "Incorrect or unstable identifiers can cause unexpected insertion, deletion, animation and cell state behaviour.\n\nHashing a mutable entire model instead of a stable identifier can make one logical item appear to be multiple different items.\n\nFrequent large snapshot updates may also create unnecessary processing.\n\nKeep identity separate from content, choose reload or reconfiguration semantics appropriately, and test rapid consecutive updates."
+      },
+      {
+        "id": 78,
+        "title": "How would you implement custom interactive navigation transitions?",
+        "answer": "Use UIKit's transition protocols to provide animation and interaction controllers.\n\n`UIViewControllerAnimatedTransitioning` defines transition animations, while interactive controllers coordinate progress with gestures.\n\nHandle cancellation as carefully as successful completion.\n\nThe animation must leave view hierarchy and navigation state consistent in either outcome.\n\nA reusable implementation should consider orientation changes, interruption, accessibility and gesture conflicts with embedded scrolling components."
+      },
+      {
+        "id": 79,
+        "title": "What causes a UIViewController memory leak?",
+        "answer": "Common causes include retained closures, delegate references, notification observers, timers, subscriptions, display links and long-running tasks.\n\nA navigation controller may also intentionally retain a controller until it is removed from the stack.\n\nUse Xcode's memory graph and Instruments to identify actual ownership chains.\n\nDo not assume a view controller is leaking merely because `deinit` does not occur immediately; verify expected ownership and lifecycle."
+      },
+      {
+        "id": 80,
+        "title": "How would you optimize a custom UIView drawing thousands of elements?",
+        "answer": "Avoid creating and laying out an individual subview for every visual primitive if the interface does not require independent interaction.\n\nConsider Core Graphics, Core Animation layers or a specialized rendering strategy.\n\nCache expensive geometry, minimize invalidated regions and reduce repeated path construction.\n\nIf interaction is needed, maintain a separate hit-testing model.\n\nProfile CPU, allocation and rendering costs before selecting the final approach."
+      },
+      {
+        "id": 81,
+        "title": "What is the difference between synchronous and asynchronous image decoding?",
+        "answer": "Synchronous decoding performed during cell configuration or drawing can block the main thread and cause frame drops.\n\nBackground decoding and image downsampling can reduce UI latency.\n\nHowever, decoding outside the main thread must be implemented with suitable thread-safe image APIs and resource management.\n\nThe cached representation should reflect actual display requirements; caching full-resolution source images unnecessarily can waste substantial memory."
+      },
+      {
+        "id": 82,
+        "title": "How would you implement a reusable design system for UIKit and SwiftUI?",
+        "answer": "Separate design tokens from framework-specific rendering.\n\nDefine typography, colors, spacing, semantic component states and accessibility requirements in a shared design contract.\n\nImplement platform adapters for UIKit and SwiftUI while keeping names and behaviour consistent.\n\nVersion components deliberately and provide migration guidance.\n\nA Principal Engineer should establish adoption metrics, contribution guidelines and processes for exceptions to avoid a design system becoming an inflexible bottleneck."
+      },
+      {
+        "id": 83,
+        "title": "How does responder-chain event handling work in UIKit?",
+        "answer": "UIKit routes many events and actions through responder relationships.\n\nViews, view controllers, windows and the application participate in event propagation and command handling.\n\nHit-testing determines the view that initially receives many touch events, while gesture recognizers participate in interpreting touch sequences.\n\nUnderstanding the responder chain helps debug keyboard handling, action routing, nested gestures and custom interaction components."
+      },
+      {
+        "id": 84,
+        "title": "How do you handle deep links and universal links in a modular UIKit app?",
+        "answer": "Parse incoming URLs into validated, typed navigation intents.\n\nAn application-level coordinator resolves the destination, checks authentication and feature availability, and routes to the owning module.\n\nAvoid letting feature modules parse arbitrary URLs independently.\n\nSupport cold starts, already-running sessions, deferred authentication and state restoration.\n\nProtect against malformed parameters and untrusted input, especially where links trigger account or transaction-related actions."
+      },
+      {
+        "id": 85,
+        "title": "How would you reduce iOS application launch time?",
+        "answer": "Measure cold and warm launch separately using Instruments and relevant performance metrics.\n\nInvestigate dynamic library loading, static initializers, dependency construction, synchronous disk reads, database migrations and premature network work.\n\nMove nonessential initialization until after the first usable screen, while preserving correctness and security requirements.\n\nDefine clear targets such as time to first meaningful interaction and track regressions through release monitoring."
+      }
+    ]
+  },
+  {
+    "name": "Architecture and Design Patterns",
+    "questions": [
+      {
+        "id": 86,
+        "title": "Compare MVC, MVVM, VIPER and Clean Architecture.",
+        "answer": "MVC separates models, views and controllers, but large UIKit controllers can accumulate presentation and business responsibilities.\n\nMVVM separates view state and presentation logic from the view. VIPER introduces more explicit boundaries for presentation, routing and business operations. Clean Architecture organizes dependencies around domain rules and use cases.\n\nNone is universally superior.\n\nChoose based on complexity, testability, team size, migration cost and consistency. A Principal Engineer should be able to defend the boundaries, not merely name the pattern."
+      },
+      {
+        "id": 87,
+        "title": "How would you design the architecture of a large travel application?",
+        "answer": "Organize business features around domains such as flights, hotels, payments, bookings, loyalty and account management.\n\nCreate stable platform capabilities for authentication, networking, analytics, design systems and experimentation.\n\nKeep feature modules responsible for their own presentation and domain-specific logic.\n\nDefine cross-domain interactions through narrow contracts or application-level orchestration rather than direct feature-to-feature coupling.\n\nEstablish build dependency rules, code ownership and monitoring that scales as teams and features grow."
+      },
+      {
+        "id": 88,
+        "title": "How would you modularize a monolithic iOS codebase?",
+        "answer": "Start by mapping dependencies, build times, ownership and change frequency.\n\nIdentify stable boundaries and extract a low-risk vertical slice first.\n\nUse Swift Package Manager or appropriate build targets, enforce dependency direction and avoid introducing a massive shared module.\n\nMeasure improvement using incremental build time, test isolation, ownership clarity and cross-team change frequency.\n\nMigration should be incremental and reversible where possible, with existing product delivery continuing throughout."
+      },
+      {
+        "id": 89,
+        "title": "What is the difference between horizontal and vertical modularization?",
+        "answer": "Horizontal modularization separates technical layers such as networking, persistence and UI.\n\nVertical modularization groups related functionality around business capabilities, such as hotel booking or payment methods.\n\nLarge mobile apps often benefit from combining them: vertical feature modules consume carefully designed shared platform capabilities.\n\nOveremphasizing horizontal layers can create modules that many teams modify simultaneously. Overemphasizing vertical isolation can duplicate essential infrastructure.\n\nThe correct balance follows domain ownership and change patterns."
+      },
+      {
+        "id": 90,
+        "title": "How do you prevent circular dependencies between modules?",
+        "answer": "Establish a directed dependency graph and explicit dependency rules.\n\nFeature modules should usually depend on shared interfaces or lower-level capabilities, not directly on one another.\n\nWhen two features require communication, place the abstraction at an appropriate common boundary or coordinate through the application layer.\n\nAutomate dependency checks in CI.\n\nDo not resolve every cycle by creating a shared module: that can gradually become a new monolith containing unrelated responsibilities."
+      },
+      {
+        "id": 91,
+        "title": "Explain dependency inversion and its practical benefits.",
+        "answer": "Dependency inversion means high-level policy should not be tightly coupled to low-level implementation details.\n\nFor example, a booking use case depends on a `BookingRepository` contract rather than a specific HTTP client.\n\nConcrete implementations can then be supplied through dependency injection.\n\nThis supports testing, implementation replacement and controlled module boundaries.\n\nHowever, abstracting every class behind a protocol can generate unnecessary complexity. Introduce boundaries where variation, isolation or ownership justify them."
+      },
+      {
+        "id": 92,
+        "title": "How would you design a dependency injection system?",
+        "answer": "Prefer explicit constructor injection for critical dependencies.\n\nDefine lifetimes clearly: application-scoped, session-scoped, feature-scoped and transient.\n\nUse composition roots to assemble implementations. A DI container can help at scale, but dependencies should remain discoverable.\n\nAvoid uncontrolled global service locators and hidden runtime resolution.\n\nTest configuration should support reliable substitutes without duplicating the entire production dependency graph."
+      },
+      {
+        "id": 93,
+        "title": "When would you use a Coordinator pattern?",
+        "answer": "Coordinators can move navigation and flow orchestration out of view controllers.\n\nThey are especially helpful for authentication, onboarding, checkout and multi-feature journeys.\n\nA coordinator should own navigation decisions and appropriately manage child coordinator lifetimes.\n\nAvoid allowing coordinators to accumulate business logic, analytics, networking and all application state.\n\nFor SwiftUI applications, equivalent responsibilities may be represented through state-driven routers rather than UIKit-specific objects."
+      },
+      {
+        "id": 94,
+        "title": "What is the difference between Repository and Data Source patterns?",
+        "answer": "A data source often provides access to a particular origin, such as a network API or local database.\n\nA repository exposes a domain-oriented interface and may coordinate multiple sources.\n\nFor example, `BookingRepository` may combine cached booking data, remote synchronization and offline state.\n\nRepositories should not become generic wrappers around every individual API endpoint.\n\nTheir purpose is to encapsulate data access decisions relevant to domain behaviour."
+      },
+      {
+        "id": 95,
+        "title": "How would you design offline-first architecture?",
+        "answer": "Make a local persistence layer the primary source for UI reads where appropriate.\n\nWrite operations update local state and enter a synchronization process, with explicit representation of pending and failed operations.\n\nUse stable identifiers, version information and defined conflict-resolution rules.\n\nSynchronization needs retry policies, deduplication, authentication handling and recovery after app termination.\n\nNot every domain permits offline mutation: financial transfers and inventory reservations may require stricter server confirmation."
+      },
+      {
+        "id": 96,
+        "title": "How do you handle backward compatibility when APIs evolve?",
+        "answer": "Prefer additive schema changes and explicit API versioning where necessary.\n\nClients should tolerate unknown optional fields but reject invalid data that threatens correctness.\n\nBackends must account for older mobile versions that remain active for months.\n\nUse capability negotiation, feature flags and deprecation windows for incompatible changes.\n\nTrack version adoption before removing server behaviour, and distinguish technical backward compatibility from changes to business meaning."
+      },
+      {
+        "id": 97,
+        "title": "How would you implement feature flags at scale?",
+        "answer": "Define typed flag contracts, default values, ownership, rollout rules and expiration dates.\n\nSupport remote evaluation where appropriate, but establish safe local defaults for unavailable configuration.\n\nSeparate release flags, experiments, operational kill switches and entitlement decisions.\n\nSecurity-sensitive authorization must remain enforced server-side.\n\nAudit flag changes, record exposure consistently for experiments and remove obsolete flags to control technical debt."
+      },
+      {
+        "id": 98,
+        "title": "What is an Architecture Decision Record?",
+        "answer": "An Architecture Decision Record, or ADR, captures the context, decision, alternatives, consequences and status of an important technical choice.\n\nIt preserves reasoning that may otherwise be lost when team members change.\n\nFor example, an ADR may document why a modular monolith was selected over many independently versioned frameworks.\n\nEffective ADRs remain concise, link to evidence and can be superseded when constraints change.\n\nTheir value is decision transparency, not bureaucratic approval."
+      },
+      {
+        "id": 99,
+        "title": "How do you evaluate whether a design pattern is overengineered?",
+        "answer": "Ask whether each abstraction addresses a real need.\n\nEvaluate cognitive complexity, boilerplate, change frequency, testability and expected future variation.\n\nIf a simple feature requires numerous protocols, factories and adapters without measurable benefits, architecture may be adding cost rather than reducing it.\n\nThe goal is not maximum abstraction. It is reducing the total cost of delivering, modifying and operating the system over time."
+      },
+      {
+        "id": 100,
+        "title": "How would you introduce a new architecture across multiple teams?",
+        "answer": "Start with evidence of the existing pain points, then establish measurable objectives.\n\nCreate a reference implementation, document architectural decisions and involve representatives from affected teams.\n\nPilot the approach in a real feature, collect feedback and refine tooling.\n\nProvide migration support, automated checks and clear ownership.\n\nAvoid mandating immediate rewrites across teams. Successful architecture changes depend on adoption and results, not just technical elegance."
+      },
+      {
+        "id": 101,
+        "title": "What is the strangler pattern, and how does it apply to iOS?",
+        "answer": "The strangler pattern progressively replaces parts of an existing system while keeping the overall product operational.\n\nFor an iOS app, a legacy booking feature can remain available while new screens and workflows move into modern modules behind controlled routing.\n\nThe app may temporarily operate with two implementations.\n\nExplicit ownership, analytics and rollback mechanisms reduce migration risk.\n\nEventually, old implementations and compatibility adapters must be removed to avoid permanent duplication."
+      },
+      {
+        "id": 102,
+        "title": "How would you design a white-label iOS application?",
+        "answer": "Separate product capabilities from brand configuration.\n\nUse shared feature modules with configurable themes, assets, capabilities, localization and service endpoints.\n\nRepresent customer-specific behaviour through explicit extension points rather than scattered brand checks.\n\nDesign a release strategy for separate bundle identifiers, provisioning profiles, entitlements and App Store workflows.\n\nTest representative brand configurations and prevent brand-specific conditions from compromising shared security or correctness."
+      },
+      {
+        "id": 103,
+        "title": "How do you design maintainable analytics architecture?",
+        "answer": "Define analytics events as typed contracts with agreed naming, metadata and privacy classifications.\n\nSeparate event creation from provider-specific transmission.\n\nCentralize common context such as app version, journey identifier and experiment exposure, while avoiding indiscriminate collection of personal data.\n\nSupport buffering, offline delivery and explicit consent requirements.\n\nValidate event schemas through tests and monitoring so product decisions are not based on silently broken tracking."
+      },
+      {
+        "id": 104,
+        "title": "How would you improve a code review process across a large organization?",
+        "answer": "Establish clear expectations for correctness, architecture, security, tests and maintainability.\n\nUse automated linting, formatting and CI checks to reduce repetitive manual feedback.\n\nEncourage reasonably sized pull requests and define review ownership and response expectations.\n\nTrack meaningful indicators such as review latency and escaped defects without using raw PR counts as individual productivity rankings.\n\nCreate a culture in which engineers explain trade-offs and learn through reviews."
+      },
+      {
+        "id": 105,
+        "title": "How do you measure architecture quality?",
+        "answer": "Architecture quality cannot be captured by a single metric.\n\nUseful signals include change lead time, build time, test reliability, cross-module coupling, defect rates, incident impact, onboarding time and ease of feature extraction.\n\nCombine quantitative measurements with developer feedback and architecture reviews.\n\nAn architecture that looks theoretically clean but requires changes across eight teams for every minor feature may have poor real-world modularity."
+      },
+      {
+        "id": 106,
+        "title": "How would you handle disagreement between Principal Engineers?",
+        "answer": "Separate the technical problem from personal preferences.\n\nAgree on requirements, constraints and decision criteria before comparing solutions.\n\nRequest evidence, prototypes or benchmarks where uncertainty can be reduced experimentally.\n\nDocument competing trade-offs and establish a clear decision owner.\n\nOnce a decision is made, communicate it consistently while remaining willing to revisit it when new evidence emerges."
+      },
+      {
+        "id": 107,
+        "title": "How should technical debt be prioritized?",
+        "answer": "Treat technical debt as an economic and operational trade-off.\n\nEstimate its impact on delivery time, defects, reliability, security and future changes.\n\nPrioritize debt with high recurring costs, high risk or a strong dependency on upcoming business work.\n\nUse targeted modernization, incremental cleanup and capacity allocation rather than assuming a complete rewrite is necessary.\n\nTie improvements to observable outcomes instead of presenting code cleanliness as an end in itself."
+      },
+      {
+        "id": 108,
+        "title": "How would you handle a failed architecture migration?",
+        "answer": "First assess user impact and whether rollback or containment is necessary.\n\nIdentify which assumptions failed: dependency boundaries, performance, team ownership, tooling or rollout sequencing.\n\nPreserve useful improvements rather than declaring the entire initiative unsuccessful.\n\nCommunicate actual results and revised options transparently.\n\nA Principal Engineer should demonstrate judgment and accountability, including willingness to stop an initiative when continuing would create more risk than value."
+      },
+      {
+        "id": 109,
+        "title": "How do you influence teams without direct authority?",
+        "answer": "Build credibility through reliable technical judgment, practical support and understanding other teams' constraints.\n\nTranslate architectural proposals into benefits that matter to stakeholders: faster releases, lower incident rates or reduced duplication.\n\nProvide examples, migration tooling and documentation that make adoption easier.\n\nListen to objections and adjust designs when justified.\n\nInfluence at Principal level is demonstrated through sustainable adoption, not merely obtaining agreement in meetings."
+      },
+      {
+        "id": 110,
+        "title": "What distinguishes a Principal Engineer from a Senior Engineer?",
+        "answer": "A Senior Engineer typically owns substantial features and solves complex problems within a team or domain.\n\nA Principal Engineer is expected to influence broader technical direction, resolve cross-team problems, establish engineering standards and improve outcomes beyond an individual feature.\n\nThe role often involves making decisions under ambiguity and developing other engineers' technical capabilities.\n\nInterview evidence should show organizational leverage, durable decisions and measurable results—not simply more years of coding experience."
+      }
+    ]
+  },
+  {
+    "name": "Coding, Algorithms and Practical Implementation",
+    "questions": [
+      {
+        "id": 111,
+        "title": "Implement an LRU cache. What data structures would you choose?",
+        "answer": "Use a dictionary for constant-time key lookup and a doubly linked list for recency ordering.\n\nEach access moves an entry to the most-recently-used end. On capacity overflow, remove the least-recently-used entry.\n\nThe expected complexity is O(1) for `get` and `put`, assuming average constant-time hash operations.\n\nFor production, consider memory cost, thread safety, eviction callbacks and whether entries should be limited by count or actual memory consumption."
+      },
+      {
+        "id": 112,
+        "title": "Solve Two Sum efficiently in Swift.",
+        "answer": "Maintain a dictionary mapping previously observed values to their indices.\n\nFor each element, look up the difference between the target and the current value.\n\n```\nfunc twoSum(_ nums: [Int], target: Int) -> [Int] {\n    var seen: [Int: Int] = [:]\n\n    for (index, value) in nums.enumerated() {\n        let (needed, overflow) =\n            target.subtractingReportingOverflow(value)\n\n        if !overflow, let otherIndex = seen[needed] {\n            return [otherIndex, index]\n        }\n\n        seen[value] = index\n    }\n\n    return []\n}\n```\n\n**Complexity:** Expected O(n) time and O(n) space.\n\nExplain duplicate handling, integer overflow and why the lookup must occur before storing the current element."
+      },
+      {
+        "id": 113,
+        "title": "Find the longest substring without repeating characters.",
+        "answer": "Use a sliding window and a dictionary tracking the latest index of each character.\n\nExpand the right boundary and move the left boundary past any duplicate that lies inside the current window.\n\nKeep track of the maximum window length.\n\n**Complexity:** O(n) time with average constant-time dictionary operations and O(k) additional space, where k is the number of distinct characters tracked.\n\nIn Swift, clarify whether the problem considers `Character`, Unicode scalars or bytes. Swift's extended grapheme clusters can change the interpretation."
+      },
+      {
+        "id": 114,
+        "title": "Implement a thread-safe counter in Swift.",
+        "answer": "An actor is an appropriate modern solution when callers can use asynchronous APIs.\n\n```\nactor Counter {\n    private var value = 0\n\n    func increment() {\n        value += 1\n    }\n\n    func currentValue() -> Int {\n        value\n    }\n}\n```\n\nSince `increment()` contains no suspension point, each increment executes as a single actor-isolated operation.\n\nExternal callers use `await` to access actor-isolated methods.\n\nFor synchronous high-frequency operations, a properly synchronized lock or atomic implementation may be more appropriate after measurement."
+      },
+      {
+        "id": 115,
+        "title": "Implement binary search and explain common mistakes.",
+        "answer": "Binary search maintains a range that may contain the target and halves that range after each comparison.\n\n```\nfunc binarySearch(_ nums: [Int], target: Int) -> Int? {\n    var low = 0\n    var high = nums.count\n\n    while low < high {\n        let mid = low + (high - low) / 2\n\n        if nums[mid] == target {\n            return mid\n        } else if nums[mid] < target {\n            low = mid + 1\n        } else {\n            high = mid\n        }\n    }\n\n    return nil\n}\n```\n\n**Complexity:** O(log n) time, O(1) space.\n\nUsing a half-open range avoids many off-by-one mistakes. State the sorted-input requirement."
+      },
+      {
+        "id": 116,
+        "title": "How would you detect a cycle in a linked list?",
+        "answer": "Use Floyd's tortoise-and-hare algorithm.\n\nAdvance one pointer by one node and another by two nodes. If they meet, a cycle exists. If the fast pointer reaches the end, there is no cycle.\n\n**Complexity:** O(n) time, O(1) space.\n\nFor a follow-up, determine the cycle's entry point by resetting one pointer to the head and advancing both pointers one step until they meet."
+      },
+      {
+        "id": 117,
+        "title": "How do you find the lowest common ancestor in a binary tree?",
+        "answer": "For a general binary tree, recursively inspect left and right subtrees.\n\nIf the current node matches either target, return it. If both subtrees return non-nil matches, the current node is the lowest common ancestor.\n\nOtherwise propagate the non-nil result.\n\n**Complexity:** O(n) time and O(h) recursive stack space.\n\nClarify whether both nodes are guaranteed to exist. Without that guarantee, extra presence tracking is needed."
+      },
+      {
+        "id": 118,
+        "title": "How would you solve Top K Frequent Elements?",
+        "answer": "Count occurrences using a dictionary, then keep the K most frequent elements using a min-heap of size K.\n\nEach candidate updates the heap if it is among the K highest frequencies.\n\n**Complexity:** O(n + u log k) time, where u is the number of unique elements, and O(u + k) space including frequency storage.\n\nA bucket-frequency solution can achieve linear expected time under suitable assumptions, with different memory trade-offs."
+      },
+      {
+        "id": 119,
+        "title": "How do you merge overlapping intervals?",
+        "answer": "Sort intervals by starting position.\n\nInitialize the result with the first interval, then compare each next interval with the current result's last interval.\n\nIf they overlap, extend the end boundary. Otherwise append a new interval.\n\n**Complexity:** O(n log n) time due to sorting and O(n) output space in the worst case.\n\nClarify whether touching endpoints count as overlapping and whether intervals may be empty or reversed."
+      },
+      {
+        "id": 120,
+        "title": "Implement debounce for a search input.",
+        "answer": "Keep a reference to the currently scheduled search task.\n\nOn each input change, cancel the previous task, create a new task and sleep for the debounce interval before initiating the request.\n\nCheck cancellation before starting.\n\n```\n@MainActor\nfinal class SearchCoordinator {\n    private var task: Task<Void, Never>?\n\n    func schedule(_ query: String) {\n        task?.cancel()\n\n        task = Task {\n            do {\n                try await Task.sleep(for: .milliseconds(300))\n                try Task.checkCancellation()\n                await performSearch(query)\n            } catch {\n                // Cancellation: no search is started.\n            }\n        }\n    }\n\n    private func performSearch(_ query: String) async {\n        // Execute the search using an injected service.\n    }\n}\n```\n\nFor production, also cancel the underlying search request and reject stale completions."
+      },
+      {
+        "id": 121,
+        "title": "Design a rate limiter.",
+        "answer": "A token-bucket algorithm maintains a capacity, current token count and refill rate.\n\nEach request consumes tokens. The bucket refills based on elapsed time, up to capacity.\n\nThis supports controlled bursts while enforcing an average request rate.\n\nFor an iOS API client, account for backgrounding, server-provided limits, fairness and cancellation.\n\nA client-side limiter protects local resources, but server-side enforcement is still required for security and global rate limits."
+      },
+      {
+        "id": 122,
+        "title": "How would you implement an exponential retry policy?",
+        "answer": "Retry only eligible transient failures.\n\nA typical delay follows \\\\(d_n=\\min(d\\_{\\max}, d_0 2^n)\\\\), with randomized jitter to avoid synchronized retry storms.\n\nRespect server `Retry-After` headers where relevant.\n\nLimit the number of attempts or total time budget, support cancellation and preserve request idempotency.\n\nDo not automatically retry non-idempotent payments unless a server-supported idempotency mechanism prevents duplicate execution."
+      },
+      {
+        "id": 123,
+        "title": "How do you detect a cycle in a directed graph?",
+        "answer": "Use depth-first search with three states: unvisited, visiting and visited.\n\nEncountering an edge to a currently visiting node indicates a directed cycle.\n\nAlternatively, use Kahn's topological sorting algorithm and check whether every node was removed.\n\n**Complexity:** O(V + E) time and O(V) additional space, excluding graph storage.\n\nThis problem is directly applicable to detecting cyclic dependencies between Swift packages or feature modules."
+      },
+      {
+        "id": 124,
+        "title": "How do you merge K sorted arrays efficiently?",
+        "answer": "Insert the first element from each nonempty array into a min-heap.\n\nRepeatedly remove the smallest element and insert the next element from the same source array.\n\nFor N total elements across K arrays, the complexity is O(N log K) time and O(K) auxiliary space, excluding output storage.\n\nIf K is small and arrays are short, simpler approaches may be acceptable, but explain the trade-off."
+      },
+      {
+        "id": 125,
+        "title": "How would you design a producer-consumer queue?",
+        "answer": "Define a bounded buffer with synchronization between producers and consumers.\n\nAn actor can manage the queue and suspended waiters through continuations, but cancellation and shutdown semantics require careful implementation.\n\nWhen full, producers should wait, fail or drop values according to the use case.\n\nWhen empty, consumers wait until data arrives or the queue closes.\n\nTest cancellation races, multiple waiters, fairness and whether every continuation is resumed exactly once."
+      },
+      {
+        "id": 126,
+        "title": "How do you optimize a slow algorithm without changing its output?",
+        "answer": "First characterize input sizes, data distribution and performance targets.\n\nMeasure whether the bottleneck is computational complexity, allocations, data locality or synchronization.\n\nSeek an algorithmic improvement before micro-optimization.\n\nFor example, replacing repeated linear membership checks with a set can reduce an O(n²) pattern to expected O(n).\n\nValidate semantics with regression tests, profile again and document any additional memory or maintenance cost."
+      },
+      {
+        "id": 127,
+        "title": "How do you solve Coin Change using dynamic programming?",
+        "answer": "For the minimum number of coins needed to make amount A, define `dp[x]` as the minimum number of coins required for amount x.\n\nInitialize `dp[0] = 0`. For each amount, consider all denominations not exceeding that amount:\n\n\\\\[ dp[x] = \\min\\_{c \\le x}(dp[x-c]+1) \\\\]\n\nIgnore unreachable states.\n\n**Complexity:** O(A × C) time and O(A) space, where C is the number of coin denominations.\n\nValidate that denominations are positive and distinguish minimum-coins from counting-combinations problems."
+      },
+      {
+        "id": 128,
+        "title": "How would you build a generic paginated data loader?",
+        "answer": "Define an abstraction for fetching a page using a cursor and returning items plus an optional next cursor.\n\nMaintain states such as idle, loading, loaded, exhausted and failed.\n\nEnsure one pagination request is active at a time, and deduplicate items using stable identifiers.\n\nSupport retrying failed pages without discarding previously loaded content.\n\nFor cursor-based pagination, do not assume page lengths are constant or that an empty page always means the entire dataset has ended unless the API contract guarantees it."
+      },
+      {
+        "id": 129,
+        "title": "How do you validate the correctness of concurrent code?",
+        "answer": "Test invariants rather than relying only on expected execution order.\n\nFor a shared request coordinator, verify that concurrent callers receive consistent results, no duplicate underlying work occurs and cancellation does not corrupt the registry.\n\nUse controlled test dependencies, deterministic synchronization points and high-volume stress tests.\n\nThread Sanitizer and runtime diagnostics provide additional evidence, but passing tests cannot prove the absence of every concurrency bug."
+      },
+      {
+        "id": 130,
+        "title": "How would you approach an unfamiliar iOS coding exercise?",
+        "answer": "Start by inspecting module boundaries, dependencies, existing tests and the expected public behaviour.\n\nReproduce the problem before modifying code.\n\nImplement the smallest maintainable change, preserving project conventions and architecture.\n\nAdd tests covering success, failure and important edge cases.\n\nExplain decisions while coding, especially where you intentionally avoid introducing a larger abstraction.\n\nAt Principal level, interviewers are likely to value maintainability and judgment alongside completion speed."
+      }
+    ]
+  },
+  {
+    "name": "Mobile and Distributed System Design",
+    "questions": [
+      {
+        "id": 131,
+        "title": "Design a travel booking iOS application supporting flights, hotels and payments.",
+        "answer": "Separate the app into vertical domains: Search, Inventory Presentation, Booking, Payments, Trips and Account.\n\nUse shared networking, authentication, analytics and design-system capabilities. A backend-for-frontend can aggregate mobile-specific responses while backend services own authoritative inventory, pricing and reservations.\n\nKey concerns include:\n\n- Search results becoming stale before checkout.\n- Short-lived inventory holds and quote expiration.\n- Idempotent booking and payment requests.\n- Partial failures between payment and booking confirmation.\n- Booking recovery after app termination or connectivity loss.\n\n**Principal-level trade-off:** Client orchestration simplifies some UI logic, but distributed business transactions should be coordinated server-side.\n\nUse a server-generated booking identifier and durable transaction state. The client must be able to recover an uncertain booking outcome through a status API rather than blindly creating another reservation."
+      },
+      {
+        "id": 132,
+        "title": "Design an Instagram-like image feed for millions of users.",
+        "answer": "Use cursor-based pagination, stable feed item identifiers and a repository that combines local cache and network results.\n\nThe iOS client should use image prefetching, size-aware decoding, memory and disk caches, and cancellation for off-screen content.\n\nThe backend can use feed-generation services, caching, object storage and a CDN.\n\nImportant design questions include feed ordering, duplicate prevention, freshness and consistency between pagination requests.\n\n**Trade-off:** Aggressive prefetching can make scrolling smoother but increases bandwidth, memory use and battery consumption.\n\nMeasure dropped frames, time to first visible content and network bytes per session."
+      },
+      {
+        "id": 133,
+        "title": "Design a WhatsApp-like real-time messaging application.",
+        "answer": "Use a persistent local message store and a synchronization service backed by server-assigned message identifiers.\n\nA WebSocket or equivalent real-time transport can deliver message events while a regular synchronization API recovers missed updates.\n\nModel message states explicitly: local pending, sent, acknowledged, delivered and read.\n\nThe backend should handle sequencing, deduplication, offline delivery and multi-device synchronization.\n\nFor secure messaging, encryption key management and end-to-end encryption protocols fundamentally influence architecture.\n\n**Trade-off:** Exactly-once network delivery is generally not a practical assumption. Use idempotency and deduplication to produce correct user-visible behaviour."
+      },
+      {
+        "id": 134,
+        "title": "Design Uber-like live location tracking.",
+        "answer": "The mobile client collects location data under platform permission and background execution constraints.\n\nUse adaptive update frequency based on movement, accuracy requirements, battery condition and application state.\n\nTransmit updates through an authenticated service, with buffering and controlled retries during connectivity loss.\n\nThe backend maintains recent location state and distributes updates to authorized subscribers.\n\nFor map display, interpolate or animate between received positions rather than repainting every location change.\n\n**Principal-level concern:** Accuracy, responsiveness, privacy and battery efficiency are competing requirements. Define measurable targets for each."
+      },
+      {
+        "id": 135,
+        "title": "Design an offline-first notes application with multi-device synchronization.",
+        "answer": "Use a local database for immediate reads and writes.\n\nRepresent each local mutation as a durable operation that can be synchronized later. Assign stable note identifiers and maintain versions or synchronization metadata.\n\nFor conflicts, options include last-write-wins, field-level merging, explicit user resolution or CRDT-based approaches.\n\nCRDTs may be justified for collaborative text editing but can be excessive for ordinary notes.\n\n**Trade-off:** Simpler conflict resolution reduces implementation cost but may overwrite legitimate concurrent edits.\n\nTest offline creation, deletion, repeated synchronization, clock skew and cross-device edits."
+      },
+      {
+        "id": 136,
+        "title": "Design a secure mobile banking application.",
+        "answer": "Separate authentication, account data, transaction initiation and transaction confirmation.\n\nStore sensitive credentials using appropriate platform security mechanisms, including Keychain and hardware-backed capabilities where available.\n\nUse secure transport, short-lived access tokens, robust session management and server-side authorization.\n\nCritical transactions require explicit state management, idempotency, audit trails and recovery from ambiguous outcomes.\n\nBiometrics should generally unlock or authorize access to protected credentials rather than substitute for server-side transaction authorization.\n\n**Principal-level concern:** Threat modeling, regulatory requirements, incident response and privacy must influence the architecture from the beginning."
+      },
+      {
+        "id": 137,
+        "title": "Design a reusable image loading SDK for multiple iOS applications.",
+        "answer": "Define a simple public API covering image requests, transformations, cancellation and cache policies.\n\nInternally separate download coordination, decoding, memory caching and disk persistence.\n\nDeduplicate equivalent in-flight requests and limit concurrent network and decoding work.\n\nHandle HTTP caching directives, memory warnings, corrupted responses and authentication-sensitive resources.\n\nFor cross-team distribution, prioritize source and binary compatibility according to the SDK's packaging model.\n\n**Trade-off:** A very configurable SDK may become difficult to use. Provide sensible defaults and narrow extension points."
+      },
+      {
+        "id": 138,
+        "title": "Design a scalable push notification system.",
+        "answer": "The backend should manage notification requests, user preferences, device tokens, delivery queues and provider integration.\n\nUse APNs for Apple device delivery, with appropriate authentication and token lifecycle management.\n\nThe app should register and refresh tokens, process notifications according to app state and route users through validated deep links.\n\nSupport opt-outs, notification categories and sensitive-content handling.\n\n**Important limitation:** APNs delivery is not guaranteed, and silent notifications are not a reliable general-purpose background execution mechanism.\n\nUse server-side message state and synchronization APIs for authoritative data."
+      },
+      {
+        "id": 139,
+        "title": "Design an analytics platform for a mobile application.",
+        "answer": "The app emits typed analytics events through a central interface.\n\nAn event pipeline validates schemas, applies privacy rules, batches eligible events and transmits them with controlled retry behaviour.\n\nThe backend ingests, validates, processes and stores events for reporting and experimentation.\n\nConsider event timestamps, ordering, deduplication, versioning and delayed offline uploads.\n\n**Trade-off:** Strong delivery guarantees can increase client persistence and battery costs.\n\nFor many product analytics events, bounded best-effort delivery is appropriate. For audit-critical events, use a separate authoritative backend process."
+      },
+      {
+        "id": 140,
+        "title": "Design a real-time sports score application.",
+        "answer": "Use an initial HTTP snapshot followed by real-time updates through WebSockets, SSE or another suitable transport.\n\nAssign event sequence numbers so the client can detect gaps, ignore duplicates and recover using a fresh snapshot.\n\nKeep a local representation of current match state and derive UI updates from controlled state transitions.\n\nSupport backgrounding, reconnection and event bursts.\n\n**Principal-level discussion:** Choose update frequency based on product requirements. Not every event needs to render immediately, especially when updates arrive faster than the screen can usefully present them."
+      },
+      {
+        "id": 141,
+        "title": "Design a large-scale mobile feature flag and experimentation platform.",
+        "answer": "Create a typed feature configuration model with user and device targeting, rollout percentage and experiment assignments.\n\nThe client fetches configuration, caches safe defaults and records exposure only when the experimental experience is actually encountered.\n\nThe backend owns assignment rules and experiment analysis.\n\nInclude kill switches for operational emergencies.\n\n**Trade-off:** Client-side evaluation reduces network dependency but can expose configuration and create inconsistencies. Security and authorization decisions must remain server-controlled."
+      },
+      {
+        "id": 142,
+        "title": "Design a modular e-commerce application supporting several regional markets.",
+        "answer": "Separate core commerce capabilities from regional product configuration.\n\nDomains may include catalog, search, cart, checkout, payments, order history and account management.\n\nCentralize currency formatting, localization, region selection and shared design primitives.\n\nUse configuration contracts for market-specific capabilities and integrations.\n\nAvoid scattering country comparisons through individual screens.\n\n**Principal-level concern:** Regional business rules—such as pricing, tax and payment eligibility—should be enforced by authoritative services, not merely mobile UI configuration."
+      },
+      {
+        "id": 143,
+        "title": "Design a multi-brand mobile design system.",
+        "answer": "Define a shared token layer for typography, color, spacing, elevation and semantic component states.\n\nBuild platform implementations that use these tokens consistently.\n\nSupport branding through controlled themes and product-specific extensions.\n\nVersion components, provide documentation and automate visual regression testing.\n\nEstablish ownership and contribution standards.\n\n**Trade-off:** Centralization improves consistency but can slow teams if every variation requires platform approval. Design explicit extension points that preserve accessibility and compatibility."
+      },
+      {
+        "id": 144,
+        "title": "Design an AI-powered travel assistant on iOS.",
+        "answer": "Separate the conversational interface, model orchestration, tool integrations and domain-specific travel services.\n\nFor suitable supported devices, use on-device model capabilities when privacy, latency and model quality requirements permit.\n\nRoute real-time information requests to authoritative services, such as weather, transport and booking availability APIs.\n\nUse structured outputs and validation before presenting actionable travel recommendations.\n\n**Principal-level concerns:** Model hallucinations, unsupported devices, context limits, tool failures, privacy and evaluation.\n\nThe model should not be treated as the source of truth for prices, reservations or live availability."
+      },
+      {
+        "id": 145,
+        "title": "Design an application capable of handling intermittent network connectivity.",
+        "answer": "Classify operations by consistency requirements.\n\nRead-only content can often be cached, while some user actions may be queued for deferred synchronization.\n\nUse network monitoring as a signal, not proof that a specific endpoint is reachable.\n\nRepresent offline state, stale content, queued operations and retry failures explicitly in the UI.\n\nUse idempotency keys for operations that may be retried.\n\n**Trade-off:** Optimistic local updates improve responsiveness but require rollback or reconciliation when server validation fails."
+      },
+      {
+        "id": 146,
+        "title": "Design a scalable mobile authentication and session management system.",
+        "answer": "Use a standards-based authorization flow such as OAuth 2.0 with PKCE where appropriate.\n\nSeparate credentials, user session state and authorization-dependent feature state.\n\nStore tokens securely and coordinate refresh operations so multiple concurrent API requests do not trigger duplicate refreshes.\n\nSupport logout, account switching, session expiration and revocation.\n\n**Principal-level concern:** A refresh operation started under an old session must never overwrite credentials for a newly authenticated user.\n\nUse session identity or generation checks to prevent cross-session races."
+      },
+      {
+        "id": 147,
+        "title": "Design an application release system for 20 engineering teams.",
+        "answer": "Create standardized build, test, signing and deployment workflows.\n\nUse modular build targets, dependency-aware tests, reliable caching and reproducible build environments.\n\nEstablish release branches or trunk-based release policies appropriate to the organization.\n\nUse staged rollout, feature flags, automated quality gates and crash monitoring.\n\nAssign ownership for release decisions and incident escalation.\n\n**Trade-off:** More gates can improve confidence but also slow delivery. Measure lead time, escaped defects, flaky tests and recovery time to optimize the entire release process."
+      },
+      {
+        "id": 148,
+        "title": "Design a high-performance search experience for a travel application.",
+        "answer": "Separate query input, search orchestration, result state, filtering and booking navigation.\n\nUse debounce where appropriate, cancel obsolete requests and reject stale responses using request generations.\n\nSupport cached recent searches, result pagination and progressive loading.\n\nThe backend should expose stable search-session identifiers and clarify whether results are snapshots or live offers.\n\n**Principal-level concern:** Search freshness differs from transaction correctness. A displayed price must be revalidated before commitment, regardless of how recently the client retrieved it."
+      },
+      {
+        "id": 149,
+        "title": "Design observability for an iOS application used by millions of customers.",
+        "answer": "Define a small set of critical user journeys such as authentication, search and checkout.\n\nInstrument crashes, hangs, launch performance, network reliability, key journey outcomes and feature-specific errors.\n\nUse trace or correlation identifiers to connect client observations with backend requests where appropriate.\n\nApply privacy controls, sampling and retention limits.\n\nDistinguish operational telemetry from product analytics.\n\n**Principal-level concern:** Monitoring must identify actionable regressions across app versions, devices, regions and experiments without overwhelming teams with noisy alerts."
+      },
+      {
+        "id": 150,
+        "title": "You inherit a legacy iOS app with slow builds, crashes and frequent production incidents. What is your 90-day architecture plan?",
+        "answer": "**Days 1–30: Discover and stabilize**\n\nEstablish baseline metrics: crash-free sessions, launch time, build duration, test reliability, incident frequency and release lead time.\n\nMap architecture, ownership and major dependencies. Identify the most serious user-facing problems and introduce immediate containment where necessary.\n\n**Days 31–60: Pilot targeted improvements**\n\nSelect one high-impact architectural boundary for modernization.\n\nIntroduce focused CI improvements, dependency rules, observability and engineering quality checks.\n\nValidate architectural improvements through an actual feature or migration rather than a theoretical demonstration.\n\n**Days 61–90: Scale and institutionalize**\n\nCompare results against baseline metrics.\n\nDocument architecture decisions, assign long-term module ownership and establish a phased roadmap.\n\nExpand proven improvements to other teams with migration tooling and clear support channels."
+      }
+    ]
+  }
+]
